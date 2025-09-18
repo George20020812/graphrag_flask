@@ -1,0 +1,6 @@
+# Core GraphRAG library
+graphrag
+
+# API Server dependencies
+fastapi
+uvicorn[standard]
