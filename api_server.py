@@ -175,8 +175,32 @@ async def run_query(project_id: str, request: QueryRequest):
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
 
+@app.delete("/project/{project_id}")
+async def delete_project(project_id: str):
+    """
+    Deletes a GraphRAG project and all its associated data.
+    """
+    project_path = API_PROJECTS_DIR / project_id
+    if not project_path.exists():
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    try:
+        shutil.rmtree(project_path)
+        return {"project_id": project_id, "message": "Project deleted successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")
+
+
+@app.get("/projects")
+async def list_projects():
+    """
+    Lists all existing GraphRAG project IDs.
+    """
+    projects = [d.name for d in API_PROJECTS_DIR.iterdir() if d.is_dir()]
+    return {"projects": projects}
+
+
 if __name__ == "__main__":
     print("Starting GraphRAG API server...")
     print("Access the interactive docs at http://127.0.0.1:8000/docs")
     uvicorn.run(app, host="127.0.0.1", port=8000)
-
