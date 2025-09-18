@@ -37,9 +37,12 @@
     ```
 
 5.  **執行 API 伺服器:**
-    ```bash
-    python api_server.py
-    ```
+    -   **Windows 使用者:**
+        直接在專案根目錄下雙擊 `start_api.bat` 檔案。
+    -   **其他使用者 (或手動執行):**
+        ```bash
+        python api_server.py
+        ```
 
 6.  **存取互動式文件:**
     在您的瀏覽器中開啟 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) 來探索並與 API 端點互動。
