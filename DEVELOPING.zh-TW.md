@@ -138,6 +138,28 @@ INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
     *   對於廣泛、高層次的問題，`method` 可以是 `"global"`；對於具體、詳細的問題，可以是 `"local"`。
 -   **回應 (Response):** 一個包含由 GraphRAG 引擎生成答案的 JSON 物件。
 
+### 步驟 4: 管理專案
+
+-   **端點:** `DELETE /project/{project_id}`
+-   **目的:** 刪除指定的 GraphRAG 專案及其所有相關資料。
+-   **URL 參數:** 將 `{project_id}` 替換為您要刪除的專案 ID。
+-   **回應 (Response):**
+    ```json
+    {
+      "project_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      "message": "Project deleted successfully."
+    }
+    ```
+
+-   **端點:** `GET /projects`
+-   **目的:** 列出所有目前存在的 GraphRAG 專案 ID。
+-   **回應 (Response):** 一個包含所有專案 ID 列表的 JSON 物件。
+    ```json
+    {
+      "projects": ["project_id_1", "project_id_2", "project_id_3"]
+    }
+    ```
+
 ## 6. 客製化與擴充
 
 -   **查詢參數:** 您可以直接在 `api_server.py` 的 `run_query` 函式中更改預設的查詢設定 (例如 `community_level`, `response_type`)。

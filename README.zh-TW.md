@@ -52,5 +52,7 @@
 -   `POST /create_project`: 從一段文字建立一個新專案，並返回一個 `project_id`。
 -   `POST /index/{project_id}`: 對指定的專案觸發索引流程。
 -   `POST /query/{project_id}`: 對指定專案的已索引資料執行查詢。
+-   `DELETE /project/{project_id}`: 刪除指定的專案及其所有資料。
+-   `GET /projects`: 列出所有現有的專案 ID。
 
 更多詳細的開發與工作流程資訊，請參閱 [DEVELOPING.zh-TW.md](DEVELOPING.zh-TW.md) 檔案。
