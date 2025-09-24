@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from graphrag.cli.initialize import initialize_project_at
 from graphrag.cli.index import index_cli
 from graphrag.cli.query import run_local_search, run_global_search
-from graphrag.config.enums import SearchMethod
+
 
 # --- FastAPI App Initialization ---
 app = FastAPI(
@@ -39,7 +39,7 @@ class CreateProjectRequest(BaseModel):
 
 class QueryRequest(BaseModel):
     query: str
-    method: SearchMethod = SearchMethod.GLOBAL
+    method: str = "global"
 
 # --- API Endpoints ---
 
@@ -64,7 +64,7 @@ async def create_project(request: CreateProjectRequest):
         (input_path / "source_text.txt").write_text(request.text_content, encoding="utf-8")
 
         # 3. Initialize the project (creates settings.yaml and .env)
-        initialize_project_at(path=project_path, force=True)
+        initialize_project_at(path=project_path)
 
         # 4. Configure API Key and LLM settings
         (project_path / ".env").write_text(f"GRAPHRAG_API_KEY={request.api_key}")
@@ -141,9 +141,9 @@ async def run_query(project_id: str, request: QueryRequest):
         loop = asyncio.get_event_loop()
         
         search_fn = None
-        if request.method == SearchMethod.LOCAL:
+        if request.method == "local":
             search_fn = run_local_search
-        elif request.method == SearchMethod.GLOBAL:
+        elif request.method == "global":
             search_fn = run_global_search
         else:
             raise HTTPException(status_code=400, detail=f"Invalid search method: {request.method}")
