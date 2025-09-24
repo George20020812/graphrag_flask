@@ -65,9 +65,12 @@ pip install -r requirements.txt
 
 在環境設定完成且相依套件安裝後，您就可以執行 API 伺服器。
 
-```bash
-python api_server.py
-```
+-   **推薦 (Windows 使用者，含環境設定與路徑檢查):**
+    直接在專案根目錄下雙擊 `open_console.bat` 檔案。它會自動啟用虛擬環境並檢查必要檔案，然後開啟一個已設定好環境的命令提示字元視窗。在該視窗中，輸入 `python api_server.py` 即可啟動伺服器。
+-   **手動執行 (或非 Windows 使用者):**
+    ```bash
+    python api_server.py
+    ```
 
 您應該會看到 Uvicorn 的輸出，表示伺服器正在執行中：
 
