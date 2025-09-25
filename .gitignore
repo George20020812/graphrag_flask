@@ -4,9 +4,8 @@ __pycache__/
 *$py.class
 
 # Virtual Environment
-#.venv/
-#env/
-#venv/
+.venv/
+env/
 
 # API Project Data
 api_projects/

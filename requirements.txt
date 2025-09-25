@@ -4,3 +4,4 @@ graphrag
 # API Server dependencies
 fastapi
 uvicorn[standard]
+python-multipart

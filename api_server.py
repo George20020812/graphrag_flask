@@ -1,11 +1,14 @@
 
 
 import asyncio
+import logging
 import os
 import shutil
 import uuid
 from pathlib import Path
+from typing import List
 
+from fastapi import File, UploadFile
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -41,6 +44,9 @@ class QueryRequest(BaseModel):
     query: str
     method: str = "global"
 
+
+
+
 # --- API Endpoints ---
 
 @app.post("/create_project", status_code=201)
@@ -60,11 +66,12 @@ async def create_project(request: CreateProjectRequest):
         input_path = project_path / "input"
         input_path.mkdir(parents=True, exist_ok=True)
 
-        # 2. Write text content to a file
-        (input_path / "source_text.txt").write_text(request.text_content, encoding="utf-8")
+        # 2. Write text content to a file if it exists
+        if request.text_content and request.text_content.strip():
+            (input_path / "source_text.txt").write_text(request.text_content, encoding="utf-8")
 
         # 3. Initialize the project (creates settings.yaml and .env)
-        initialize_project_at(path=project_path)
+        initialize_project_at(path=str(project_path), force=True)
 
         # 4. Configure API Key and LLM settings
         (project_path / ".env").write_text(f"GRAPHRAG_API_KEY={request.api_key}")
@@ -173,6 +180,45 @@ async def run_query(project_id: str, request: QueryRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+
+@app.post("/upload_txt/{project_id}")
+async def upload_txt_files(project_id: str, files: List[UploadFile] = File(...)):
+    """
+    Uploads text files directly to the project's input directory.
+    """
+    project_path = API_PROJECTS_DIR / project_id
+    if not project_path.exists():
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    input_path = project_path / "input"
+    if not input_path.exists():
+        input_path.mkdir(parents=True, exist_ok=True)
+
+    results = {"successful": [], "failed": []}
+
+    for file in files:
+        try:
+            # Ensure the filename is safe and unique
+            file_name = f"{uuid.uuid4()}_{file.filename}"
+            file_path = input_path / file_name
+            
+            # Write content to the file
+            file_path.write_bytes(await file.read())
+            
+            results["successful"].append(file.filename)
+        except Exception as e:
+            logging.error(f"Failed to upload {file.filename}: {e}")
+            results["failed"].append({"filename": file.filename, "reason": str(e)})
+    
+    if not results["successful"]:
+        raise HTTPException(status_code=400, detail={"message": "No files could be uploaded.", "results": results})
+
+    return {
+        "project_id": project_id,
+        "message": f"Processed {len(files)} files. {len(results['successful'])} successful, {len(results['failed'])} failed.",
+        "results": results
+    }
 
 
 @app.delete("/project/{project_id}")

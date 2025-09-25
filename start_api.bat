@@ -1,6 +1,6 @@
 @echo off
 REM Activate the virtual environment (path is relative from the parent dir)
-call ..\.venv\Scripts\activate.bat
+call .venv\Scripts\activate.bat
 
 REM Start the API server
 echo "Starting API server..."
