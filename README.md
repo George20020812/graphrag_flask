@@ -13,7 +13,7 @@
 1.  **複製儲存庫:**
     ```bash
     git clone https://github.com/George20020812/graphrag_api.git
-    cd graphrag_api_project
+    cd graphrag_api
     ```
 
 2.  **建立虛擬環境:**
