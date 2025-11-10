@@ -4,13 +4,13 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any
 from dotenv import load_dotenv
 
 from fastapi import File, UploadFile
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, model_validator
 
 # 載入環境變數
 load_dotenv()
@@ -47,28 +47,31 @@ class CreateProjectRequest(BaseModel):
     - 如果 `llm` 為 'azure' 且未提供 Azure 相關設定，會從 AZURE_* 環境變數讀取
     - `text_content` 預設為空字串，允許不提供文本內容
     """
-    text_content: str = Field("", description="要索引的文本內容。空值表示不建立輸入檔案。", example="")
-    api_key: Optional[str] = Field(None, description="LLM 的 API 金鑰。如未提供則從 GRAPHRAG_API_KEY 環境變數讀取。", example="")
+    text_content: str = Field("", description="要索引的文本內容。空值表示不建立輸入檔案。", json_schema_extra={'example': ''})
+    api_key: Optional[str] = Field(None, description="LLM 的 API 金鑰。如未提供則從 GRAPHRAG_API_KEY 環境變數讀取。", json_schema_extra={'example': ''})
     llm: str = Field("openai", description="LLM 提供者 ('openai' 或 'azure')。")
     # Azure 特定欄位（選填；可從環境變數讀取）
-    azure_api_base: Optional[str] = Field(None, description="Azure API 基礎 URL 或端點", example="")
-    azure_api_version: Optional[str] = Field(None, description="Azure API 版本", example="")
-    azure_deployment_name: Optional[str] = Field(None, description="Azure 部署名稱", example="")
+    azure_api_base: Optional[str] = Field(None, description="Azure API 基礎 URL 或端點", json_schema_extra={'example': ''})
+    azure_api_version: Optional[str] = Field(None, description="Azure API 版本", json_schema_extra={'example': ''})
+    azure_deployment_name: Optional[str] = Field(None, description="Azure 部署名稱", json_schema_extra={'example': ''})
 
-    @root_validator(pre=True)
-    def fill_defaults_from_env(cls, values):
+    @model_validator(mode='before')
+    @classmethod
+    def fill_defaults_from_env(cls, data: Any):
         """如果特定值未提供，嘗試從環境變數填入"""
+        if not isinstance(data, dict):
+            return data
 
         # 如果請求中未提供 api_key，從環境變數讀取
-        if not values.get("api_key"):
+        if not data.get("api_key"):
             env_key = os.getenv("GRAPHRAG_API_KEY")
             if env_key:
-                values["api_key"] = env_key
+                data["api_key"] = env_key
             else:
                 raise ValueError("API key 必須在請求中提供或設定在環境變數 GRAPHRAG_API_KEY 中")
 
         # 如果使用 Azure，嘗試從環境變數填入 Azure 設定
-        llm_val = values.get("llm") or "openai"
+        llm_val = data.get("llm") or "openai"
         if llm_val == "azure":
             azure_api_base = os.getenv("AZURE_API_BASE")
             azure_api_version = os.getenv("AZURE_API_VERSION")
@@ -77,16 +80,16 @@ class CreateProjectRequest(BaseModel):
             if not all([azure_api_base, azure_api_version, azure_deployment_name]):
                 raise ValueError("使用 Azure 時必須提供所有 Azure 設定或在環境變數中設定")
                 
-            values.setdefault("azure_api_base", azure_api_base)
-            values.setdefault("azure_api_version", azure_api_version)
-            values.setdefault("azure_deployment_name", azure_deployment_name)
+            data.setdefault("azure_api_base", azure_api_base)
+            data.setdefault("azure_api_version", azure_api_version)
+            data.setdefault("azure_deployment_name", azure_deployment_name)
 
-        return values
+        return data
 
 
 class QueryRequest(BaseModel):
     query: str
-    method: str = Field("global", description="預設查詢方法為 'global'", example="global")
+    method: str = Field("global", description="預設查詢方法為 'global'", json_schema_extra={'example': 'global'})
 
 
 class IndexingConfig(BaseModel):
