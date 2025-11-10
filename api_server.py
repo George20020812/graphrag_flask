@@ -1,50 +1,101 @@
-
-
 import asyncio
 import logging
 import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import List
+from typing import List, Optional
+from dotenv import load_dotenv
 
 from fastapi import File, UploadFile
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, root_validator
 
-# The graphrag library will be installed in the environment, so we can import it directly.
+# 載入環境變數
+load_dotenv()
+
+# GraphRAG Core Libraries
+from graphrag.config.load_config import load_config
+from graphrag.config.enums import IndexingMethod
+from graphrag.api import build_index
+
+# GraphRAG CLI for project initialization and querying
 from graphrag.cli.initialize import initialize_project_at
-from graphrag.cli.index import index_cli
 from graphrag.cli.query import run_local_search, run_global_search
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-
-# --- FastAPI App Initialization ---
+# --- FastAPI 應用程式初始化 ---
 app = FastAPI(
     title="GraphRAG API",
-    description="An API to interact with the GraphRAG indexing and querying pipelines.",
+    description="GraphRAG 索引和查詢管道的 API 介面",
 )
 
-# --- Project Directory Setup ---
+# --- 專案目錄設定 ---
 API_PROJECTS_DIR = Path("./api_projects")
 API_PROJECTS_DIR.mkdir(exist_ok=True)
 
-# --- Pydantic Models for API Requests ---
+# --- API 請求的 Pydantic 模型 ---
 class CreateProjectRequest(BaseModel):
-    text_content: str
-    api_key: str
-    llm: str = "openai" # or "azure"
-    # Add other Azure-specific fields if needed
-    azure_api_base: str | None = None
-    azure_api_version: str | None = None
-    azure_deployment_name: str | None = None
+    """創建專案的請求模型
+
+    預設行為說明：
+    - 如果未提供 `api_key`，會從環境變數 `GRAPHRAG_API_KEY` 讀取
+    - 如果 `llm` 為 'azure' 且未提供 Azure 相關設定，會從 AZURE_* 環境變數讀取
+    - `text_content` 預設為空字串，允許不提供文本內容
+    """
+    text_content: str = Field("", description="要索引的文本內容。空值表示不建立輸入檔案。", example="")
+    api_key: Optional[str] = Field(None, description="LLM 的 API 金鑰。如未提供則從 GRAPHRAG_API_KEY 環境變數讀取。", example="")
+    llm: str = Field("openai", description="LLM 提供者 ('openai' 或 'azure')。")
+    # Azure 特定欄位（選填；可從環境變數讀取）
+    azure_api_base: Optional[str] = Field(None, description="Azure API 基礎 URL 或端點", example="")
+    azure_api_version: Optional[str] = Field(None, description="Azure API 版本", example="")
+    azure_deployment_name: Optional[str] = Field(None, description="Azure 部署名稱", example="")
+
+    @root_validator(pre=True)
+    def fill_defaults_from_env(cls, values):
+        """如果特定值未提供，嘗試從環境變數填入"""
+
+        # 如果請求中未提供 api_key，從環境變數讀取
+        if not values.get("api_key"):
+            env_key = os.getenv("GRAPHRAG_API_KEY")
+            if env_key:
+                values["api_key"] = env_key
+            else:
+                raise ValueError("API key 必須在請求中提供或設定在環境變數 GRAPHRAG_API_KEY 中")
+
+        # 如果使用 Azure，嘗試從環境變數填入 Azure 設定
+        llm_val = values.get("llm") or "openai"
+        if llm_val == "azure":
+            azure_api_base = os.getenv("AZURE_API_BASE")
+            azure_api_version = os.getenv("AZURE_API_VERSION")
+            azure_deployment_name = os.getenv("AZURE_DEPLOYMENT_NAME")
+            
+            if not all([azure_api_base, azure_api_version, azure_deployment_name]):
+                raise ValueError("使用 Azure 時必須提供所有 Azure 設定或在環境變數中設定")
+                
+            values.setdefault("azure_api_base", azure_api_base)
+            values.setdefault("azure_api_version", azure_api_version)
+            values.setdefault("azure_deployment_name", azure_deployment_name)
+
+        return values
 
 
 class QueryRequest(BaseModel):
     query: str
-    method: str = "global"
+    method: str = Field("global", description="預設查詢方法為 'global'", example="global")
 
 
+class IndexingConfig(BaseModel):
+    """索引過程的配置"""
+    method: str = Field("standard", description="要使用的索引方法")
+    memory_profile: bool = Field(False, description="啟用記憶體分析")
+    dry_run: bool = Field(False, description="執行乾跑測試而不實際執行")
+    output_dir: Optional[str] = Field(None, description="覆寫設定檔中的輸出目錄路徑")
+    verbose: bool = Field(True, description="啟用詳細日誌輸出")
 
 
 # --- API Endpoints ---
@@ -52,12 +103,12 @@ class QueryRequest(BaseModel):
 @app.post("/create_project", status_code=201)
 async def create_project(request: CreateProjectRequest):
     """
-    Creates a new GraphRAG project.
-    - Generates a unique project ID.
-    - Creates a project directory structure.
-    - Writes the provided text content to an input file.
-    - Initializes the GraphRAG configuration.
-    - Sets the API key.
+    建立新的 GraphRAG 專案。
+    - 產生唯一的專案 ID
+    - 建立專案目錄結構
+    - 將提供的文本內容寫入輸入檔案
+    - 初始化 GraphRAG 設定
+    - 設置 API 金鑰
     """
     project_id = str(uuid.uuid4())
     project_path = API_PROJECTS_DIR / project_id
@@ -71,26 +122,26 @@ async def create_project(request: CreateProjectRequest):
             (input_path / "source_text.txt").write_text(request.text_content, encoding="utf-8")
 
         # 3. Initialize the project (creates settings.yaml and .env)
-        initialize_project_at(path=str(project_path), force=True)
+        initialize_project_at(path=str(project_path), force=True) #舊版本加上", force=True"
 
         # 4. Configure API Key and LLM settings
         (project_path / ".env").write_text(f"GRAPHRAG_API_KEY={request.api_key}")
         
-        # A simple way to update YAML without a full library
+        # 不使用完整的函式庫來更新 YAML 的簡單方法
         settings_path = project_path / "settings.yaml"
         with open(settings_path, "r") as f:
             settings = f.read()
 
         if request.llm == "azure":
-            # This is a simplified update. A more robust solution would use a YAML library.
-            azure_config = f"""
+            # 這是一個簡化的更新。更穩健的解決方案應該使用 YAML 函式庫
+            azure_config = f'''
 type: azure_openai_chat
 api_base: {request.azure_api_base}
 api_version: {request.azure_api_version}
 deployment_name: {request.azure_deployment_name}
-"""
-            # Replace the default chat model config
-            # This regex is basic and might need adjustment for different settings files
+'''
+            # 替換預設的聊天模型設定
+            # 這個正則表達式很基本，可能需要根據不同的設定檔案進行調整
             import re
             settings = re.sub(r"llm:\n  type: openai_chat", "llm:\n" + azure_config, settings, flags=re.MULTILINE)
             
@@ -99,39 +150,56 @@ deployment_name: {request.azure_deployment_name}
 
         return {"project_id": project_id, "message": "Project created successfully."}
     except Exception as e:
-        # Clean up if project creation fails
+        # 如果專案建立失敗，清理資源
         if project_path.exists():
             shutil.rmtree(project_path)
         raise HTTPException(status_code=500, detail=f"Failed to create project: {str(e)}")
 
 
 @app.post("/index/{project_id}")
-async def run_indexing(project_id: str):
+async def run_indexing(project_id: str, config: IndexingConfig = IndexingConfig()):
     """
-    Runs the indexing pipeline for a given project_id.
-    This is a long-running process.
+    執行指定專案 ID 的索引管道。
     """
     project_path = API_PROJECTS_DIR / project_id
     if not project_path.exists():
         raise HTTPException(status_code=404, detail="Project not found.")
 
     try:
-        # Run indexing in a separate thread to avoid blocking the event loop for too long
-        # For a real production app, use a task queue like Celery or ARQ.
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None, 
-            lambda: index_cli(root_dir=project_path, verbose=True)
+        # 1. 準備覆寫參數
+        # 模仿 index_cli 的行為，將 API 參數轉換為設定覆寫
+        cli_overrides = {}
+        if config.output_dir:
+            cli_overrides["output.base_dir"] = config.output_dir
+
+        # 2. 使用官方提供的 `load_config` 函式載入設定
+        graphrag_config = load_config(project_path, cli_overrides)
+
+        # 3. 若請求為 dry_run，僅需確認設定能成功載入即為有效。
+        if config.dry_run:
+            return {
+                "project_id": project_id,
+                "message": "Dry run validation successful. Configuration is valid.",
+            }
+
+        # 4. 呼叫非同步的 build_index 函式來執行索引管道。
+        await build_index(
+            config=graphrag_config,
+            method=IndexingMethod(config.method),
+            memory_profile=config.memory_profile,
+            verbose=config.verbose,
         )
-        return {"project_id": project_id, "message": "Indexing process started and completed."}
+        return {"project_id": project_id, "message": "Indexing process completed successfully."}
+
     except Exception as e:
+        logging.error(f"Indexing failed for project {project_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
 
 
 @app.post("/query/{project_id}")
 async def run_query(project_id: str, request: QueryRequest):
     """
-    Runs a query against an indexed project.
+    對已索引的專案執行查詢。
     """
     project_path = API_PROJECTS_DIR / project_id
     if not project_path.exists():
@@ -143,8 +211,8 @@ async def run_query(project_id: str, request: QueryRequest):
         raise HTTPException(status_code=400, detail="Project has not been indexed yet.")
 
     try:
-        # The query functions are async, but the CLI wrappers are sync.
-        # We run them in an executor to be safe.
+        # 查詢函數是非同步的，但 CLI 封裝是同步的
+        # 為了安全起見，我們在執行器中運行它們
         loop = asyncio.get_event_loop()
         
         search_fn = None
@@ -159,9 +227,10 @@ async def run_query(project_id: str, request: QueryRequest):
             None,
             lambda: search_fn(
                 root_dir=project_path,
-                data_dir=None, # Let it use the default from root
+                data_dir=None, # 使用根目錄的預設值
                 config_filepath=None,
-                community_level=2, # Default value from CLI
+                community_level=2, # 來自 CLI 的預設值
+                dynamic_community_selection=True,
                 response_type="Multiple Paragraphs", # Default value
                 streaming=False, # Return the full response
                 query=request.query,
@@ -169,8 +238,8 @@ async def run_query(project_id: str, request: QueryRequest):
             ),
         )
         
-        # The response object might not be directly JSON serializable.
-        # Based on the code, it seems to be a string.
+        # 回應物件可能無法直接序列化為 JSON
+        # 根據程式碼，它似乎是字串類型
         return {
             "project_id": project_id,
             "query": request.query,
@@ -185,7 +254,7 @@ async def run_query(project_id: str, request: QueryRequest):
 @app.post("/upload_txt/{project_id}")
 async def upload_txt_files(project_id: str, files: List[UploadFile] = File(...)):
     """
-    Uploads text files directly to the project's input directory.
+    直接將文字檔案上傳到專案的輸入目錄。
     """
     project_path = API_PROJECTS_DIR / project_id
     if not project_path.exists():
@@ -199,11 +268,11 @@ async def upload_txt_files(project_id: str, files: List[UploadFile] = File(...))
 
     for file in files:
         try:
-            # Ensure the filename is safe and unique
+            # 確保檔案名稱安全且唯一
             file_name = f"{uuid.uuid4()}_{file.filename}"
             file_path = input_path / file_name
             
-            # Write content to the file
+            # 將內容寫入檔案
             file_path.write_bytes(await file.read())
             
             results["successful"].append(file.filename)
@@ -224,7 +293,7 @@ async def upload_txt_files(project_id: str, files: List[UploadFile] = File(...))
 @app.delete("/project/{project_id}")
 async def delete_project(project_id: str):
     """
-    Deletes a GraphRAG project and all its associated data.
+    刪除 GraphRAG 專案及其所有相關資料。
     """
     project_path = API_PROJECTS_DIR / project_id
     if not project_path.exists():
@@ -240,13 +309,13 @@ async def delete_project(project_id: str):
 @app.get("/projects")
 async def list_projects():
     """
-    Lists all existing GraphRAG project IDs.
+    列出所有現有的 GraphRAG 專案 ID。
     """
     projects = [d.name for d in API_PROJECTS_DIR.iterdir() if d.is_dir()]
     return {"projects": projects}
 
 
 if __name__ == "__main__":
-    print("Starting GraphRAG API server...")
-    print("Access the interactive docs at http://127.0.0.1:8000/docs")
+    print("正在啟動 GraphRAG API 伺服器...")
+    print("可在 http://127.0.0.1:8000/docs 存取互動式文件")
     uvicorn.run(app, host="127.0.0.1", port=8000)

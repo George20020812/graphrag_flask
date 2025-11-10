@@ -24,22 +24,30 @@
 ### 步驟 1: 複製儲存庫
 
 ```bash
-git clone https://github.com/George20020812/graphrag_flask.git
-cd graphrag_flask
+git clone https://github.com/George20020812/graphrag_api.git
+cd graphrag_api
 ```
 
-### 步驟 2: 建立虛擬環境
+### 步驟 2: 設定環境變數
 
-虛擬環境對於隔離專案的相依套件至關重要，可以避免與您系統上其他 Python 專案發生衝突。
+在專案根目錄下建立一個名為 `.env` 的檔案。此檔案用於存放敏感資訊，例如您的 API 金鑰。如果檔案已存在，請確保其包含必要變數。
+
+```env
+# .env 檔案範例
+GRAPHRAG_API_KEY="YOUR_GEMINI_OR_AZURE_API_KEY"
+
+```
+**重要提示:** `api_server.py` 會自動從此檔案讀取金鑰。如果在 API 請求中未提供 `api_key`，則必須在此處設定。
+
+### 步驟 3: 建立虛擬環境
+
+虛擬環境對於隔離專案的相依套件至關重要。
 
 ```bash
-# 此命令會建立一個名為 .venv 的資料夾來存放虛擬環境
 python -m venv .venv
 ```
 
-### 步驟 3: 啟用環境
-
-在安裝相依套件或執行應用程式之前，您必須在您的終端機工作階段中啟用虛擬環境。
+### 步驟 4: 啟用環境
 
 -   **在 Windows 上:**
     ```powershell
@@ -50,14 +58,9 @@ python -m venv .venv
     source .venv/bin/activate
     ```
 
-您的終端機提示符號應會改變，以表示虛擬環境已被啟用。
-
-### 步驟 4: 安裝相依套件
-
-`requirements.txt` 檔案包含了本專案所需的所有 Python 套件。
+### 步驟 5: 安裝相依套件
 
 ```bash
-# 確認您的虛擬環境已被啟用
 pip install -r requirements.txt
 ```
 
@@ -67,10 +70,7 @@ pip install -r requirements.txt
 
 -   **推薦 (Windows 使用者，含環境設定與路徑檢查):**
     直接在專案根目錄下雙擊 `open_console.bat` 檔案。它會自動啟用虛擬環境並檢查必要檔案，然後開啟一個已設定好環境的命令提示字元視窗。在該視窗中，輸入 `python api_server.py` 即可啟動伺服器。
--   **手動執行 (或非 Windows 使用者):**
-    ```bash
-    python api_server.py
-    ```
+
 
 您應該會看到 Uvicorn 的輸出，表示伺服器正在執行中：
 
@@ -101,16 +101,17 @@ INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 -   **請求內文 (Request Body):**
     ```json
     {
-      "text_content": "您要索引的一長段文字...",
-      "api_key": "您的 OpenAI 或 Azure OpenAI API 金鑰",
+      "text_content": "要索引的初始文本內容 (可選)",
       "llm": "openai",
-      "azure_api_base": "https://your-instance.openai.azure.com",
-      "azure_api_version": "2024-02-15-preview",
-      "azure_deployment_name": "your-deployment"
+      "api_key": "您的 API 金鑰 (可選，若 .env 中已設定)",
+      "azure_api_base": "Azure 端點 (可選，若 .env 中已設定)",
+      "azure_api_version": "Azure API 版本 (可選)",
+      "azure_deployment_name": "Azure 部署名稱 (可選)"
     }
     ```
-    *   `text_content` 和 `api_key` 是必需的。
-    *   只有當 `llm` 設定為 `"azure"` 時，才需要 Azure 相關的欄位。
+    *   `text_content` 是可選的。如果留空，您可以後續透過 `/upload_txt` 端點上傳檔案。
+    *   `llm` 預設為 `"openai"`。若設為 `"azure"`，則必須提供 Azure 相關設定 (可透過請求或 `.env` 檔案)。
+    *   `api_key` 是可選的。如果請求中未提供，系統會自動從 `.env` 檔案讀取 `GRAPHRAG_API_KEY`。
 -   **回應 (Response):** 一個包含此新專案唯一 `project_id` 的 JSON 物件。
     ```json
     {
@@ -119,14 +120,31 @@ INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
     }
     ```
 
-### 步驟 2: 索引專案
+### 步驟 2: 上傳資料 (可選)
+
+如果您在建立專案時未提供 `text_content`，或者需要新增更多檔案，請使用此端點。
+
+-   **端點:** `POST /upload_txt/{project_id}`
+-   **目的:** 將一個或多個 `.txt` 檔案上傳到專案的 `input` 目錄。
+-   **URL 參數:** 將 `{project_id}` 替換為從步驟 1 取得的 ID。
+-   **請求:** 使用 `multipart/form-data` 格式上傳檔案。
+-   **回應:**
+    ```json
+    {
+      "project_id": "...",
+      "message": "Processed 2 files. 2 successful, 0 failed.",
+      "results": { "successful": ["file1.txt", "file2.txt"], "failed": [] }
+    }
+    ```
+
+### 步驟 3: 索引專案
 
 -   **端點:** `POST /index/{project_id}`
 -   **目的:** 在您建立專案時提供的資料上執行 GraphRAG 索引流程。
 -   **URL 參數:** 將 `{project_id}` 替換為您從上一步收到的 ID。
 -   **注意:** 這是一個耗時且資源密集的操作。API 會等待其完成後才發送回應。對於正式的生產環境，請考慮修改伺服器以將其作為背景任務執行 (例如，使用 Celery 或 FastAPI 的 `BackgroundTasks`)。
 
-### 步驟 3: 查詢專案
+### 步驟 4: 查詢專案
 
 -   **端點:** `POST /query/{project_id}`
 -   **目的:** 從您已索引的資料中提問並提取見解。
@@ -141,7 +159,7 @@ INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
     *   對於廣泛、高層次的問題，`method` 可以是 `"global"`；對於具體、詳細的問題，可以是 `"local"`。
 -   **回應 (Response):** 一個包含由 GraphRAG 引擎生成答案的 JSON 物件。
 
-### 步驟 4: 管理專案
+### 步驟 5: 管理專案
 
 -   **端點:** `DELETE /project/{project_id}`
 -   **目的:** 刪除指定的 GraphRAG 專案及其所有相關資料。
@@ -163,13 +181,43 @@ INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
     }
     ```
 
-## 6. 客製化與擴充
+## 6. `run_indexing` API 參數詳解
+
+當您呼叫 `POST /index/{project_id}` 端點時，您可以選擇性地在請求的 JSON 內文中提供一個物件來覆寫 `graphrag` 索引流程的預設行為。以下是每個可用參數的詳細說明。
+
+### 1. `method: str`
+*   **功能說明**：控制索引的模式。
+*   **預設值**：`"standard"`
+*   **使用情境**：
+    *   `"standard"`：從頭開始建立一個全新的索引。這是最常見的模式。
+
+### 2. `memory_profile: bool`
+*   **功能說明**：是否啟用記憶體分析。
+*   **預設值**：`False`
+*   **使用情境**：開發者工具。若索引過程佔用過多記憶體，設為 `True` 可產生記憶體用量報告以供效能分析。
+
+### 3. `dry_run: bool`
+*   **功能說明**：執行乾跑測試 (Dry Run)，模擬執行但不寫入檔案或呼叫 LLM。
+*   **預設值**：`False`
+*   **使用情境**：在正式執行前用來預覽執行計畫及檢查設定是否有效。
+
+### 4. `output_dir: Optional[str]`
+*   **功能說明**：指定最終索引結果的輸出目錄。
+*   **預設值**：`None` (輸出到專案根目錄下的 `output` 資料夾)
+*   **使用情境**：當您希望將索引檔案存放到一個與原始專案分離的集中位置時使用。
+
+### 5. `verbose: bool`
+*   **功能說明**：是否啟用詳細日誌輸出。
+*   **預設值**：`True`
+*   **使用情境**：設為 `True` 時，索引過程會印出詳細的執行步驟，方便追蹤進度和排查問題。
+
+## 7. 客製化與擴充
 
 -   **查詢參數:** 您可以直接在 `api_server.py` 的 `run_query` 函式中更改預設的查詢設定 (例如 `community_level`, `response_type`)。
 -   **GraphRAG 設定:** 索引流程的核心行為 (如分塊、實體提取等) 是由為每個專案建立的 `settings.yaml` 檔案控制的。要客製化它，您可以在 `api_server.py` 的 `create_project` 端點中修改 `initialize_project_at` 函式的產出。
 -   **新增端點:** 您可以透過在 `api_server.py` 中使用 `@app` 裝飾器定義新函式來新增功能 (例如 `@app.get("/my-new-endpoint")`)。
 
-## 7. 疑難排解
+## 8. 疑難排解
 
 -   **`/index` 或 `/query` 出現 `404 Not Found`:** 這幾乎總是意味著 URL 中的 `project_id` 不正確或不存在。
 -   **`400 Project has not been indexed yet`:** 您在成功完成 `/index` 步驟之前就對專案呼叫了 `/query`。

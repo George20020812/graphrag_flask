@@ -12,8 +12,8 @@
 
 1.  **複製儲存庫:**
     ```bash
-    git clone https://github.com/George20020812/graphrag_flask.git
-    cd graphrag_flask
+    git clone https://github.com/George20020812/graphrag_api.git
+    cd graphrag_api_project
     ```
 
 2.  **建立虛擬環境:**

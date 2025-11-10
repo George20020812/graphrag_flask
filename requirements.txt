@@ -1,7 +1,5 @@
-# Core GraphRAG library
-graphrag
-
-# API Server dependencies
-fastapi
-uvicorn[standard]
-python-multipart
+fastapi==0.121.1
+graphrag==2.7.0
+pydantic==2.12.4
+python-dotenv==1.2.1
+uvicorn==0.38.0
