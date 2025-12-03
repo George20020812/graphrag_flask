@@ -26,10 +26,6 @@
         ```bash
         .venv\Scripts\activate
         ```
-    -   **macOS/Linux:**
-        ```bash
-        source .venv/bin/activate
-        ```
 
 4.  **安裝相依套件:**
     ```bash

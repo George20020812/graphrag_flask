@@ -25,8 +25,8 @@ from graphrag.cli.initialize import initialize_project_at
 from graphrag.cli.query import run_local_search, run_global_search
 import sys
 import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
 # --- FastAPI 應用程式初始化 ---
 app = FastAPI(
@@ -319,6 +319,7 @@ async def list_projects():
 
 
 if __name__ == "__main__":
-    print("正在啟動 GraphRAG API 伺服器...")
-    print("可在 http://127.0.0.1:8000/docs 存取互動式文件")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    port = int(os.getenv("PORT", 8000))
+    print("正在啟動 GraphRAG API 伺服器...", flush=True)
+    print(f"可在 http://127.0.0.1:{port}/docs 存取互動式文件", flush=True)
+    uvicorn.run(app, host="127.0.0.1", port=port)

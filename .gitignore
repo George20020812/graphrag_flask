@@ -5,15 +5,9 @@ __pycache__/
 
 # Virtual Environment
 .venv/
-env/
+.env
 
 # API Project Data
-api_projects/
-
-# IDE / Editor
-.vscode/
-.idea/
-
-# OS-specific
-.DS_Store
-Thumbs.db
+api_projects/*
+api_projects/example/prompts
+!api_projects/example/
