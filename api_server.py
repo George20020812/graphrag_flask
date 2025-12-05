@@ -100,6 +100,13 @@ class IndexingConfig(BaseModel):
     output_dir: Optional[str] = Field(None, description="覆寫設定檔中的輸出目錄路徑")
     verbose: bool = Field(True, description="啟用詳細日誌輸出")
 
+#這個class是暫時的，用於處理增量更新的請求參數
+class UpdateProjectRequest(BaseModel):
+    """
+    增量更新專用的請求模型
+    """
+    memory_profile: bool = Field(False, description="啟用記憶體分析")
+    verbose: bool = Field(True, description="啟用詳細日誌輸出")
 
 # --- API Endpoints ---
 
@@ -253,6 +260,78 @@ async def run_query(project_id: str, request: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
 
+@app.post("/update_index/{project_id}")
+async def run_update_indexing(project_id: str, request: UpdateProjectRequest = UpdateProjectRequest()):
+    """
+    對指定專案執行「增量更新 (Incremental Update)」。
+    
+    機制：
+    比較 'input' 資料夾中的新檔案與 'output' 資料夾中的舊索引。
+    只有差異部分會被處理，這比完整索引省錢且快。
+    
+    前置條件：
+    專案必須已經執行過至少一次完整索引，且 'output/documents.parquet' 必須存在。
+    """
+    project_path = API_PROJECTS_DIR / project_id
+    if not project_path.exists():
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    output_path = project_path / "output"
+    parquet_file = output_path / "documents.parquet"
+
+    # --- 關鍵檢查：確保有舊資料可以對比 ---
+    if not output_path.exists() or not parquet_file.exists():
+        raise HTTPException(
+            status_code=400, 
+            detail=(
+                "無法執行增量更新：找不到先前的索引檔案 (documents.parquet)。"
+                "這是第一次執行嗎？請改用 /index 接口執行完整索引。"
+            )
+        )
+    # -------------------------------------
+
+    try:
+        # 1. 載入設定
+        # 這裡不需要 override output_dir，因為更新模式必須讀寫同一個 output
+        graphrag_config = load_config(project_path)
+
+        # 2. 呼叫 build_index 並開啟更新模式
+        # 注意：這裡傳入 is_update_run=True 是關鍵
+        await build_index(
+            config=graphrag_config,
+            method=IndexingMethod.Standard, # 更新通常基於 Standard 流程
+            is_update_run=True,             # <--- 告訴 GraphRAG 這是更新
+            memory_profile=request.memory_profile,
+            verbose=request.verbose,
+        )
+        
+        return {
+            "project_id": project_id, 
+            "message": "Incremental update completed successfully.",
+            "type": "update"
+        }
+
+    except Exception as e:
+        logging.error(f"Update failed for project {project_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
+
+
+@app.delete("/project/{project_id}")
+async def delete_project(project_id: str):
+    """
+    刪除 GraphRAG 專案及其所有相關資料。
+    """
+    project_path = API_PROJECTS_DIR / project_id
+    if not project_path.exists():
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    try:
+        shutil.rmtree(project_path)
+        return {"project_id": project_id, "message": "Project deleted successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")
 
 @app.post("/upload_txt/{project_id}")
 async def upload_txt_files(project_id: str, files: List[UploadFile] = File(...)):
@@ -291,23 +370,6 @@ async def upload_txt_files(project_id: str, files: List[UploadFile] = File(...))
         "message": f"Processed {len(files)} files. {len(results['successful'])} successful, {len(results['failed'])} failed.",
         "results": results
     }
-
-
-@app.delete("/project/{project_id}")
-async def delete_project(project_id: str):
-    """
-    刪除 GraphRAG 專案及其所有相關資料。
-    """
-    project_path = API_PROJECTS_DIR / project_id
-    if not project_path.exists():
-        raise HTTPException(status_code=404, detail="Project not found.")
-
-    try:
-        shutil.rmtree(project_path)
-        return {"project_id": project_id, "message": "Project deleted successfully."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")
-
 
 @app.get("/projects")
 async def list_projects():
